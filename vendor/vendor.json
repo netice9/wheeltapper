@@ -1,0 +1,43 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "xNDw/9h+y9gmFllZjEAbfe307Rs=",
+			"path": "github.com/google/go-github/github",
+			"revision": "5c45bca952b96dedace6c307caff915483013003",
+			"revisionTime": "2016-12-09T18:12:45Z"
+		},
+		{
+			"checksumSHA1": "Evpv9y6iPdy+8FeAVDmKrqV1sqo=",
+			"path": "github.com/google/go-querystring/query",
+			"revision": "2a60fc2ba6c19de80291203597d752e9ba58e4c0",
+			"revisionTime": "2015-10-28T18:53:53Z"
+		},
+		{
+			"checksumSHA1": "4hQNaJUg67lF/QcO0NKzUeqlaew=",
+			"path": "golang.org/x/net/context",
+			"revision": "541150ac4f433e755f5663eba5d888c2fa347343",
+			"revisionTime": "2016-10-31T06:24:04Z"
+		},
+		{
+			"checksumSHA1": "mktBVED98G2vv+OKcSgtnFVZC1Y=",
+			"path": "golang.org/x/oauth2",
+			"revision": "8a57ed94ffd43444c0879fe75701732a38afc985",
+			"revisionTime": "2015-12-30T04:02:54Z"
+		},
+		{
+			"checksumSHA1": "st9F4RETvsjcEHmnMvF9XvlAxDE=",
+			"path": "golang.org/x/oauth2/internal",
+			"revision": "8a57ed94ffd43444c0879fe75701732a38afc985",
+			"revisionTime": "2015-12-30T04:02:54Z"
+		},
+		{
+			"checksumSHA1": "kQhSWcBfQ2eYRsKGY7hUbUbRNFs=",
+			"path": "gopkg.in/urfave/cli.v1",
+			"revision": "01857ac33766ce0c93856370626f9799281c14f4",
+			"revisionTime": "2016-05-09T15:13:33Z"
+		}
+	],
+	"rootPath": "github.com/netice9/wheeltapper"
+}
