@@ -3,14 +3,21 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 
 	"golang.org/x/oauth2"
 
+	"github.com/docker/libcompose/docker"
+	"github.com/docker/libcompose/docker/ctx"
+	"github.com/docker/libcompose/project"
+	"github.com/docker/libcompose/project/events"
+	"github.com/docker/libcompose/project/options"
 	"github.com/google/go-github/github"
 	"gopkg.in/urfave/cli.v1"
 )
@@ -76,55 +83,101 @@ func main() {
 			return err
 		}
 
-		extractTarStream(gzipReader)
+		projectDir, err := extractTarStream(gzipReader)
+
+		if err != nil {
+			return err
+		}
+
+		log.Println(projectDir)
+
+		proj, err := docker.NewProject(&ctx.Context{
+			Context: project.Context{
+				ComposeFiles: []string{fmt.Sprintf("%s/docker-compose-ci.yml", projectDir)},
+				ProjectName:  projectDir,
+			},
+		}, nil)
+
+		cfg, _ := proj.GetServiceConfig("ci")
+
+		ch := make(chan events.Event, 10)
+
+		proj.AddListener(ch)
+		exitCode, err := proj.Run(context.Background(), "ci", cfg.Command, options.Run{Detached: false})
+		if err != nil {
+			return err
+		}
+
+		log.Println("ExitCode", exitCode)
+
+		for e := range ch {
+			log.Println(e)
+			if e.EventType == events.ServiceRun && e.ServiceName == "ci" {
+				break
+			}
+		}
+
+		err = proj.Stop(context.Background(), 10)
+		if err != nil {
+			return err
+		}
+
+		err = proj.Delete(context.Background(), options.Delete{RemoveVolume: true, RemoveRunning: true})
+		if err != nil {
+			return err
+		}
 
 		return nil
 	}
 
+	app.Run(os.Args)
 }
 
-func extractTarStream(r io.Reader) error {
+func extractTarStream(r io.Reader) (string, error) {
 	tr := tar.NewReader(r)
 	var header *tar.Header
 	var err error
 	topLevelDir := ""
-	for header, err = tr.Next(); err != nil; header, err = tr.Next() {
+	for header, err = tr.Next(); err == nil; header, err = tr.Next() {
 
 		if header.Name == "pax_global_header" {
 			_, err = io.Copy(ioutil.Discard, tr)
 			if err != nil {
-				return err
+				return "", err
 			}
 			continue
 		}
 
 		filename := header.Name
-
+		log.Println("filename", filename)
 		switch header.Typeflag {
 		case tar.TypeDir:
 			err = os.MkdirAll(filename, os.FileMode(header.Mode))
 			if err != nil {
-				return err
+				return "", err
 			}
 			if topLevelDir == "" {
 				topLevelDir = filename
 			}
 
 		case tar.TypeReg:
+			log.Println("writing", filename)
 			var writer io.WriteCloser
 			writer, err = os.Create(filename)
 
 			if err != nil {
-				return err
+				return "", err
 			}
 
 			_, err = io.Copy(writer, tr)
+			if err != nil {
+				return "", err
+			}
 
 			err = os.Chmod(filename, os.FileMode(header.Mode))
 
 			if err != nil {
-				fmt.Println(err)
-				os.Exit(1)
+				return "", err
 			}
 
 			writer.Close()
@@ -133,9 +186,9 @@ func extractTarStream(r io.Reader) error {
 	}
 
 	if err != nil && err != io.EOF {
-		return err
+		return "", err
 	}
 
-	return nil
+	return topLevelDir, nil
 
 }
