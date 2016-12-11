@@ -61,68 +61,13 @@ func main() {
 		oc := oauth2.NewClient(oauth2.NoContext, ts)
 		client := github.NewClient(oc)
 
-		url, _, err := client.Repositories.GetArchiveLink(owner, repo, github.Tarball, &github.RepositoryContentGetOptions{Ref: ref})
+		projectDir, err := downloadRef(client, oc, owner, repo, ref)
 		if err != nil {
 			return err
 		}
 
-		req, err := http.NewRequest("GET", url.String(), nil)
-		if err != nil {
-			return err
-		}
+		err = runCI(projectDir)
 
-		response, err := oc.Do(req)
-		if err != nil {
-			return err
-		}
-
-		defer response.Body.Close()
-
-		gzipReader, err := gzip.NewReader(response.Body)
-		if err != nil {
-			return err
-		}
-
-		projectDir, err := extractTarStream(gzipReader)
-
-		if err != nil {
-			return err
-		}
-
-		log.Println(projectDir)
-
-		proj, err := docker.NewProject(&ctx.Context{
-			Context: project.Context{
-				ComposeFiles: []string{fmt.Sprintf("%s/docker-compose-ci.yml", projectDir)},
-				ProjectName:  projectDir,
-			},
-		}, nil)
-
-		cfg, _ := proj.GetServiceConfig("ci")
-
-		ch := make(chan events.Event, 10)
-
-		proj.AddListener(ch)
-		exitCode, err := proj.Run(context.Background(), "ci", cfg.Command, options.Run{Detached: false})
-		if err != nil {
-			return err
-		}
-
-		log.Println("ExitCode", exitCode)
-
-		for e := range ch {
-			log.Println(e)
-			if e.EventType == events.ServiceRun && e.ServiceName == "ci" {
-				break
-			}
-		}
-
-		err = proj.Stop(context.Background(), 10)
-		if err != nil {
-			return err
-		}
-
-		err = proj.Delete(context.Background(), options.Delete{RemoveVolume: true, RemoveRunning: true})
 		if err != nil {
 			return err
 		}
@@ -131,6 +76,72 @@ func main() {
 	}
 
 	app.Run(os.Args)
+}
+
+func runCI(projectDir string) error {
+	proj, err := docker.NewProject(&ctx.Context{
+		Context: project.Context{
+			ComposeFiles: []string{fmt.Sprintf("%s/docker-compose-ci.yml", projectDir)},
+			ProjectName:  projectDir,
+		},
+	}, nil)
+
+	cfg, _ := proj.GetServiceConfig("ci")
+
+	ch := make(chan events.Event, 10)
+
+	proj.AddListener(ch)
+	exitCode, err := proj.Run(context.Background(), "ci", cfg.Command, options.Run{Detached: false})
+	if err != nil {
+		return err
+	}
+
+	log.Println("ExitCode", exitCode)
+
+	for e := range ch {
+		log.Println(e)
+		if e.EventType == events.ServiceRun && e.ServiceName == "ci" {
+			break
+		}
+	}
+
+	err = proj.Stop(context.Background(), 10)
+	if err != nil {
+		return err
+	}
+
+	err = proj.Delete(context.Background(), options.Delete{RemoveVolume: true, RemoveRunning: true})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func downloadRef(client *github.Client, oc *http.Client, owner, repo, ref string) (string, error) {
+	url, _, err := client.Repositories.GetArchiveLink(owner, repo, github.Tarball, &github.RepositoryContentGetOptions{Ref: ref})
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("GET", url.String(), nil)
+	if err != nil {
+		return "", err
+	}
+
+	response, err := oc.Do(req)
+	if err != nil {
+		return "", err
+	}
+
+	defer response.Body.Close()
+
+	gzipReader, err := gzip.NewReader(response.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return extractTarStream(gzipReader)
+
 }
 
 func extractTarStream(r io.Reader) (string, error) {
