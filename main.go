@@ -3,48 +3,42 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
-	"context"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 
 	"golang.org/x/oauth2"
 
-	"github.com/docker/libcompose/docker"
-	"github.com/docker/libcompose/docker/ctx"
-	"github.com/docker/libcompose/project"
-	"github.com/docker/libcompose/project/events"
-	"github.com/docker/libcompose/project/options"
 	"github.com/google/go-github/github"
-	"gopkg.in/urfave/cli.v1"
+	"gopkg.in/urfave/cli.v2"
 )
 
 func main() {
-	app := cli.NewApp()
+	app := cli.App{}
 
 	app.Flags = []cli.Flag{
-		cli.StringFlag{
-			Name:   "owner",
-			Usage:  "Owner of the repositry",
-			EnvVar: "OWNER",
+		&cli.StringFlag{
+			Name:    "owner",
+			Usage:   "Owner of the repositry",
+			EnvVars: []string{"OWNER"},
 		},
-		cli.StringFlag{
-			Name:   "repo",
-			Usage:  "Name of the github repo",
-			EnvVar: "REPO",
+		&cli.StringFlag{
+			Name:    "repo",
+			Usage:   "Name of the github repo",
+			EnvVars: []string{"REPO"},
 		},
-		cli.StringFlag{
-			Name:   "ref",
-			Usage:  "Reference to check",
-			EnvVar: "REF",
+		&cli.StringFlag{
+			Name:    "ref",
+			Usage:   "Reference to check",
+			EnvVars: []string{"REF"},
 		},
-		cli.StringFlag{
-			Name:   "token",
-			Usage:  "OAUTH2 token use when authenticating",
-			EnvVar: "TOKEN",
+		&cli.StringFlag{
+			Name:    "token",
+			Usage:   "OAUTH2 token use when authenticating",
+			EnvVars: []string{"TOKEN"},
 		},
 	}
 
@@ -61,7 +55,13 @@ func main() {
 		oc := oauth2.NewClient(oauth2.NoContext, ts)
 		client := github.NewClient(oc)
 
-		projectDir, err := downloadRef(client, oc, owner, repo, ref)
+		sha, _, err := client.Repositories.GetCommitSHA1(owner, repo, ref, "")
+		if err != nil {
+			log.Print("CI finished", err)
+			return err
+		}
+
+		projectDir, err := downloadRef(client, oc, owner, repo, sha)
 		if err != nil {
 			return err
 		}
@@ -69,52 +69,36 @@ func main() {
 		err = runCI(projectDir)
 
 		if err != nil {
+			// client.Repositories.CreateStatus(owner, repo, sha, &github.RepoStatus{
+			// 	State:     github.String("failure"),
+			// 	TargetURL: github.String("https://www.netice9.com"),
+			// 	Context:   github.String("wheeltapper"),
+			// })
 			return err
 		}
 
-		return nil
+		// _, _, err = client.Repositories.CreateStatus(owner, repo, sha, &github.RepoStatus{
+		// 	State:     github.String("success"),
+		// 	TargetURL: github.String("https://www.netice9.com"),
+		// 	Context:   github.String("wheeltapper"),
+		// })
+
+		return err
 	}
 
 	app.Run(os.Args)
+	// err :=
+	// if err != nil {
+	// 	panic(err)
+	// }
 }
 
 func runCI(projectDir string) error {
-	proj, err := docker.NewProject(&ctx.Context{
-		Context: project.Context{
-			ComposeFiles: []string{fmt.Sprintf("%s/docker-compose-ci.yml", projectDir)},
-			ProjectName:  projectDir,
-		},
-	}, nil)
-
-	cfg, _ := proj.GetServiceConfig("ci")
-
-	ch := make(chan events.Event, 10)
-
-	proj.AddListener(ch)
-	exitCode, err := proj.Run(context.Background(), "ci", cfg.Command, options.Run{Detached: false})
-	if err != nil {
-		return err
-	}
-
-	log.Println("ExitCode", exitCode)
-
-	for e := range ch {
-		log.Println(e)
-		if e.EventType == events.ServiceRun && e.ServiceName == "ci" {
-			break
-		}
-	}
-
-	err = proj.Stop(context.Background(), 10)
-	if err != nil {
-		return err
-	}
-
-	err = proj.Delete(context.Background(), options.Delete{RemoveVolume: true, RemoveRunning: true})
-	if err != nil {
-		return err
-	}
-	return nil
+	cmd := exec.Command("docker-compose", "-f", "docker-compose-ci.yml", "run", "test")
+	cmd.Dir = projectDir
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+	return cmd.Run()
 }
 
 func downloadRef(client *github.Client, oc *http.Client, owner, repo, ref string) (string, error) {
