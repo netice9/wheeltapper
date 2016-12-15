@@ -69,19 +69,19 @@ func main() {
 		err = runCI(projectDir)
 
 		if err != nil {
-			// client.Repositories.CreateStatus(owner, repo, sha, &github.RepoStatus{
-			// 	State:     github.String("failure"),
-			// 	TargetURL: github.String("https://www.netice9.com"),
-			// 	Context:   github.String("wheeltapper"),
-			// })
+			client.Repositories.CreateStatus(owner, repo, sha, &github.RepoStatus{
+				State:     github.String("failure"),
+				TargetURL: github.String("https://www.netice9.com"),
+				Context:   github.String("wheeltapper"),
+			})
 			return err
 		}
 
-		// _, _, err = client.Repositories.CreateStatus(owner, repo, sha, &github.RepoStatus{
-		// 	State:     github.String("success"),
-		// 	TargetURL: github.String("https://www.netice9.com"),
-		// 	Context:   github.String("wheeltapper"),
-		// })
+		_, _, err = client.Repositories.CreateStatus(owner, repo, sha, &github.RepoStatus{
+			State:     github.String("success"),
+			TargetURL: github.String("https://www.netice9.com"),
+			Context:   github.String("wheeltapper"),
+		})
 
 		return err
 	}
