@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -31,66 +30,124 @@ func main() {
 			EnvVars: []string{"REPO"},
 		},
 		&cli.StringFlag{
-			Name:    "ref",
-			Usage:   "Reference to check",
-			EnvVars: []string{"REF"},
-		},
-		&cli.StringFlag{
 			Name:    "token",
 			Usage:   "OAUTH2 token use when authenticating",
 			EnvVars: []string{"TOKEN"},
 		},
 	}
 
-	app.Action = func(c *cli.Context) error {
-		owner := c.String("owner")
-		repo := c.String("repo")
-		ref := c.String("ref")
-		token := c.String("token")
+	app.Commands = []*cli.Command{
+		&cli.Command{
+			Name: "poll-repo",
+			Action: func(c *cli.Context) error {
+				owner := c.String("owner")
+				repo := c.String("repo")
+				token := c.String("token")
 
-		ts := oauth2.StaticTokenSource(
-			&oauth2.Token{AccessToken: token},
-		)
+				ts := oauth2.StaticTokenSource(
+					&oauth2.Token{AccessToken: token},
+				)
 
-		oc := oauth2.NewClient(oauth2.NoContext, ts)
-		client := github.NewClient(oc)
+				oc := oauth2.NewClient(oauth2.NoContext, ts)
+				client := github.NewClient(oc)
 
-		sha, _, err := client.Repositories.GetCommitSHA1(owner, repo, ref, "")
-		if err != nil {
-			log.Print("CI finished", err)
-			return err
-		}
+				toCheck := []string{}
 
-		projectDir, err := downloadRef(client, oc, owner, repo, sha)
-		if err != nil {
-			return err
-		}
+				commits, _, err := client.Repositories.ListCommits(owner, repo, &github.CommitsListOptions{
+					ListOptions: github.ListOptions{
+						PerPage: 10,
+					},
+					SHA: "master",
+				})
+				if err != nil {
+					return err
+				}
+				for _, c := range commits {
+					sha := *c.SHA
+					statuses, _, err := client.Repositories.ListStatuses(owner, repo, sha, &github.ListOptions{PerPage: 200})
+					if err != nil {
+						return err
+					}
 
-		err = runCI(projectDir)
+					found := false
+					for _, s := range statuses {
+						if *s.Context == "wheeltapper" {
+							found = true
+							break
+						}
+					}
+					if found {
+						continue
+					}
+					toCheck = append(toCheck, sha)
+				}
 
-		if err != nil {
-			client.Repositories.CreateStatus(owner, repo, sha, &github.RepoStatus{
-				State:     github.String("failure"),
-				TargetURL: github.String("https://www.netice9.com"),
-				Context:   github.String("wheeltapper"),
-			})
-			return err
-		}
+				for _, sha := range toCheck {
+					checkRef(client, oc, owner, repo, sha)
+				}
 
-		_, _, err = client.Repositories.CreateStatus(owner, repo, sha, &github.RepoStatus{
-			State:     github.String("success"),
-			TargetURL: github.String("https://www.netice9.com"),
-			Context:   github.String("wheeltapper"),
-		})
+				return nil
+			},
+		},
+		&cli.Command{
+			Name: "check-ref",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:    "ref",
+					Usage:   "Reference to check",
+					EnvVars: []string{"REF"},
+				},
+			},
+			Action: func(c *cli.Context) error {
+				owner := c.String("owner")
+				repo := c.String("repo")
+				ref := c.String("ref")
+				token := c.String("token")
 
-		return err
+				ts := oauth2.StaticTokenSource(
+					&oauth2.Token{AccessToken: token},
+				)
+
+				oc := oauth2.NewClient(oauth2.NoContext, ts)
+				client := github.NewClient(oc)
+				return checkRef(client, oc, owner, repo, ref)
+			},
+		},
 	}
 
 	app.Run(os.Args)
-	// err :=
-	// if err != nil {
-	// 	panic(err)
-	// }
+}
+
+func checkRef(client *github.Client, oc *http.Client, owner, repo, ref string) error {
+	sha, _, err := client.Repositories.GetCommitSHA1(owner, repo, ref, "")
+	if err != nil {
+		return err
+	}
+
+	projectDir, err := downloadRef(client, oc, owner, repo, sha)
+	if err != nil {
+		return err
+	}
+
+	err = runCI(projectDir)
+
+	if err != nil {
+		client.Repositories.CreateStatus(owner, repo, sha, &github.RepoStatus{
+			State:     github.String("failure"),
+			TargetURL: github.String("https://www.netice9.com"),
+			Context:   github.String("wheeltapper"),
+		})
+		return err
+	}
+
+	_, _, err = client.Repositories.CreateStatus(owner, repo, sha, &github.RepoStatus{
+		State:     github.String("success"),
+		TargetURL: github.String("https://www.netice9.com"),
+		Context:   github.String("wheeltapper"),
+	})
+
+	return err
+
 }
 
 func runCI(projectDir string) error {
@@ -144,7 +201,6 @@ func extractTarStream(r io.Reader) (string, error) {
 		}
 
 		filename := header.Name
-		log.Println("filename", filename)
 		switch header.Typeflag {
 		case tar.TypeDir:
 			err = os.MkdirAll(filename, os.FileMode(header.Mode))
@@ -156,7 +212,6 @@ func extractTarStream(r io.Reader) (string, error) {
 			}
 
 		case tar.TypeReg:
-			log.Println("writing", filename)
 			var writer io.WriteCloser
 			writer, err = os.Create(filename)
 
